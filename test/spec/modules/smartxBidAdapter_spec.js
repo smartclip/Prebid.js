@@ -5,6 +5,7 @@ import {
   spec
 } from 'modules/smartxBidAdapter.js';
 import { getGlobal } from '../../../src/prebidGlobal.js';
+import { fillVideoDefaults } from '../../../src/video.js';
 
 describe('The smartx adapter', function () {
   before(function () {
@@ -335,6 +336,103 @@ describe('The smartx adapter', function () {
       expect(request.data.imp[0].video.linearity).to.equal(3);
     });
 
+    it('should pass plcmt from the ad unit', function () {
+      bid.mediaTypes.video.plcmt = 4;
+
+      var request = spec.buildRequests([bid], bidRequestObj)[0];
+
+      expect(request.data.imp[0].video.plcmt).to.equal(4);
+    });
+
+    it('should not send plcmt when the ad unit does not declare it', function () {
+      var request = spec.buildRequests([bid], bidRequestObj)[0];
+
+      expect(request.data.imp[0].video).to.not.have.property('plcmt');
+    });
+
+    it('should pass the plcmt core fills in for outstream', function () {
+      bid.mediaTypes.video.context = 'outstream';
+      fillVideoDefaults(bid);
+
+      var request = spec.buildRequests([bid], bidRequestObj)[0];
+
+      expect(request.data.imp[0].video.plcmt).to.equal(4);
+    });
+
+    it('should pass the plcmt core fills in for muted playback', function () {
+      bid.mediaTypes.video.playbackmethod = [2];
+      fillVideoDefaults(bid);
+
+      var request = spec.buildRequests([bid], bidRequestObj)[0];
+
+      expect(request.data.imp[0].video.plcmt).to.equal(2);
+    });
+
+    it('should pass ortb video fields declared on the ad unit', function () {
+      Object.assign(bid.mediaTypes.video, {
+        linearity: 2,
+        startdelay: -1,
+        pos: 3,
+        delivery: [1],
+        protocols: [7, 8],
+        api: [1, 2],
+        mimes: ['video/mp4'],
+        minduration: 5,
+        maxduration: 30,
+        minbitrate: 100,
+        maxbitrate: 1000,
+        skip: 1,
+        skipmin: 10,
+        skipafter: 5,
+        battr: [1, 8],
+        playbackend: 2,
+        playbackmethod: [2]
+      });
+
+      var video = spec.buildRequests([bid], bidRequestObj)[0].data.imp[0].video;
+
+      expect(video).to.contain({
+        linearity: 2,
+        startdelay: -1,
+        pos: 3,
+        minduration: 5,
+        maxduration: 30,
+        minbitrate: 100,
+        maxbitrate: 1000,
+        skip: 1,
+        skipmin: 10,
+        skipafter: 5,
+        playbackend: 2
+      });
+      expect(video.delivery).to.deep.equal([1]);
+      expect(video.protocols).to.deep.equal([7, 8]);
+      expect(video.api).to.deep.equal([1, 2]);
+      expect(video.mimes).to.deep.equal(['video/mp4']);
+      expect(video.battr).to.deep.equal([1, 8]);
+      expect(video.playbackmethod).to.deep.equal([2]);
+    });
+
+    it('should let bidder params override the ad unit', function () {
+      bid.mediaTypes.video.linearity = 2;
+      bid.mediaTypes.video.startdelay = -1;
+      bid.params.linearity = 1;
+      bid.params.startdelay = 30;
+
+      var video = spec.buildRequests([bid], bidRequestObj)[0].data.imp[0].video;
+
+      expect(video.linearity).to.equal(1);
+      expect(video.startdelay).to.equal(30);
+    });
+
+    it('should read a flat playerSize', function () {
+      bid.mediaTypes.video.playerSize = [640, 360];
+
+      var request = spec.buildRequests([bid], bidRequestObj)[0];
+
+      expect(request.data.imp[0].video.w).to.equal(640);
+      expect(request.data.imp[0].video.h).to.equal(360);
+    });
+
     it('should pass min and max duration params', function () {
       var request;
 
@@ -553,6 +651,15 @@ describe('The smartx adapter', function () {
           }]
         }
       };
+    });
+
+    it('should read a flat playerSize for the renderer', function () {
+      bidderRequestObj.bidRequest.bids[0].mediaTypes.video.playerSize = [400, 300];
+
+      var responses = spec.interpretResponse(serverResponse, bidderRequestObj);
+
+      expect(responses[0].renderer.config.player_width).to.equal(400);
+      expect(responses[0].renderer.config.player_height).to.equal(300);
     });
 
     it('should attempt to insert the script without outstream config options set', function () {

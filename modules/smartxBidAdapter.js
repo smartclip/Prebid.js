@@ -101,24 +101,43 @@ export const spec = {
       const domain = getBidIdParameter('domain', bid.params);
       const cat = getBidIdParameter('cat', bid.params) || [''];
       let pubcid = null;
-      const playerSize = deepAccess(bid, 'mediaTypes.video.playerSize');
-      const contentWidth = playerSize[0][0];
-      const contentHeight = playerSize[0][1];
+      const videoMediaType = deepAccess(bid, 'mediaTypes.video') || {};
+      const size = getPlayerSize(bid);
+      const contentWidth = size[0];
+      const contentHeight = size[1];
+      // bidder params override the ad unit, which overrides our defaults
+      const videoParam = (name, defaultValue) => {
+        const param = bid.params?.[name];
+        if (param != null && param !== '') {
+          return param;
+        }
+        return videoMediaType[name] != null ? videoMediaType[name] : defaultValue;
+      };
       const secure = +(isPageSecure || (getBidIdParameter('secure', bid.params) ? 1 : 0));
       const ext = {
         sdk_name: 'Prebid 1+'
       };
-      const mimes = getBidIdParameter('mimes', bid.params) || ['application/javascript', 'video/mp4', 'video/webm'];
-      const linearity = getBidIdParameter('linearity', bid.params) || 1;
-      const minduration = getBidIdParameter('minduration', bid.params) || 0;
-      const maxduration = getBidIdParameter('maxduration', bid.params) || 500;
-      const startdelay = getBidIdParameter('startdelay', bid.params) || 0;
-      const minbitrate = getBidIdParameter('minbitrate', bid.params) || 0;
-      const maxbitrate = getBidIdParameter('maxbitrate', bid.params) || 3500;
-      const delivery = getBidIdParameter('delivery', bid.params) || [2];
-      const pos = getBidIdParameter('pos', bid.params) || 1;
-      const api = getBidIdParameter('api', bid.params) || [2];
-      const protocols = getBidIdParameter('protocols', bid.params) || [2, 3, 5, 6];
+      const mimes = videoParam('mimes', ['application/javascript', 'video/mp4', 'video/webm']);
+      const linearity = videoParam('linearity', 1);
+      const minduration = videoParam('minduration', 0);
+      const maxduration = videoParam('maxduration', 500);
+      const startdelay = videoParam('startdelay', 0);
+      const minbitrate = videoParam('minbitrate', 0);
+      const maxbitrate = videoParam('maxbitrate', 3500);
+      const delivery = videoParam('delivery', [2]);
+      const pos = videoParam('pos', 1);
+      const api = videoParam('api', [2]);
+      const protocols = videoParam('protocols', [2, 3, 5, 6]);
+      // only sent when they are set on the ad unit or the params. Note that core
+      // fills in plcmt for outstream and for muted playbackmethods, so it can be
+      // set even when the publisher did not declare it.
+      const optional = {};
+      ['plcmt', 'skip', 'skipmin', 'skipafter', 'battr', 'playbackend', 'playbackmethod'].forEach(name => {
+        const value = videoParam(name);
+        if (value != null) {
+          optional[name] = value;
+        }
+      });
 
       const smartxReq = [{
         id: bid.bidId,
@@ -139,6 +158,7 @@ export const spec = {
           delivery: delivery,
           pos: pos,
           api: api,
+          ...optional,
           ext: ext
         },
         tagid: tagId,
@@ -324,15 +344,15 @@ export const spec = {
           const context = deepAccess(currentBidRequest, 'mediaTypes.video.context');
 
           if (context === 'outstream') {
-            const playersize = deepAccess(currentBidRequest, 'mediaTypes.video.playerSize');
+            const playersize = getPlayerSize(currentBidRequest);
             const renderer = Renderer.install({
               id: 0,
               url: 'https://dco.smartclip.net/?plc=7777779',
               adUnitCode: currentBidRequest.adUnitCode,
               config: {
                 adText: 'SmartX Outstream Video Ad via Prebid.js',
-                player_width: playersize[0][0],
-                player_height: playersize[0][1],
+                player_width: playersize[0],
+                player_height: playersize[1],
                 content_page_url: deepAccess(bidderRequest, 'data.site.page'),
                 ad_mute: +!!deepAccess(currentBidRequest, 'params.ad_mute'),
                 hide_skin: +!!deepAccess(currentBidRequest, 'params.hide_skin'),
@@ -451,6 +471,18 @@ function createOutstreamConfig(bid) {
     logError('[SMARTX][renderer] Error caught: ' + e);
   }
   return playerConfig;
+}
+
+/**
+ * Read the player size off the ad unit. Core normalises this to [[w, h]], but the
+ * flat [w, h] form still reaches adapters that are called directly.
+ * @param bid A valid bid object
+ * @returns {Array} [w, h]
+ */
+function getPlayerSize(bid) {
+  const playerSize = deepAccess(bid, 'mediaTypes.video.playerSize');
+
+  return isArray(playerSize[0]) ? playerSize[0] : playerSize;
 }
 
 /**
