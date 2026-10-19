@@ -70,7 +70,7 @@ import { getGlobalVarName } from "./buildOptions.ts";
 import { yieldAll } from "./utils/yield.ts";
 
 const pbjsInstance = getGlobal();
-const { triggerUserSyncs } = userSync;
+const { triggerUserSyncs, removeUserSyncs } = userSync;
 
 /* private variables */
 const { REQUEST_BIDS, SET_TARGETING } = EVENTS;
@@ -457,6 +457,7 @@ declare module './prebidGlobal' {
      * Re-trigger user syncs. Requires the `userSync.enableOverride` config to be set.
      */
     triggerUserSyncs: typeof triggerUserSyncs;
+    removeUserSyncs: () => number;
     getAdserverTargetingForAdUnitCodeStr: typeof getAdserverTargetingForAdUnitCodeStr;
     getHighestUnusedBidResponseForAdUnitCode: typeof getHighestUnusedBidResponseForAdUnitCode;
     getAdserverTargetingForAdUnitCode: typeof getAdserverTargetingForAdUnitCode;
@@ -500,6 +501,9 @@ declare module './prebidGlobal' {
 
 // Allow publishers who enable user sync override to trigger their sync
 addApiMethod('triggerUserSyncs', triggerUserSyncs);
+
+// Allow publishers to clean up sync iframes, e.g. on navigation in a single page application
+addApiMethod('removeUserSyncs', removeUserSyncs);
 
 /**
  * Return a query string with all available targeting parameters for the given ad unit.
@@ -812,6 +816,9 @@ export const requestBids = (function() {
     enrichFPD(PbPromise.resolve(ortb2Fragments.global)).then(global => {
       ortb2Fragments.global = global;
       return startAuction({ bidsBackHandler, timeout: cbTimeout, adUnits, adUnitCodes, labels, auctionId, ttlBuffer, ortb2Fragments, metrics, defer });
+    }).catch((e) => {
+      defer.reject(e);
+      throw e;
     });
   }, 'requestBids');
 
@@ -847,7 +854,17 @@ export const requestBids = (function() {
       defer: defer({ promiseFactory: (r) => new Promise(r) })
     });
     delegate.call(this, req);
-    return req.defer.promise;
+    return req.defer.promise
+      .catch((e) => {
+        if (typeof options.bidsBackHandler === 'function') {
+          try {
+            options.bidsBackHandler();
+          } catch (e) {
+            logError('Error executing bidsBackHandler', e);
+          }
+        }
+        throw e;
+      });
   })));
 })();
 
